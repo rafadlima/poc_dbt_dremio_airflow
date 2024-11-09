@@ -1,0 +1,102 @@
+###########################################
+# Notebook- Iceberg - DBT Setup
+###########################################
+
+version: "3"
+
+services:
+  # Airflow Server
+  airflow-webserver:
+    hostname: airflow
+    container_name: airflow
+    image: andrejunior/airflow-spark:latest
+    restart: always
+    networks:
+      iceberg:
+    depends_on:
+      - postgres
+      - minio
+    environment:   
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - LOAD_EX=n
+      - EXECUTOR=Local    
+    volumes:
+      - airflow-data:/usr/local/airflow/data
+      - ./src/dags:/usr/local/airflow/dags
+      - ./src/spark/applications:/usr/local/spark/applications            
+      - ./src/spark/assets:/usr/local/spark/assets     
+    ports:
+      - "8085:8080"
+    command: webserver
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f /usr/local/airflow/airflow-webserver.pid ]"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+  postgres:
+    hostname: postgres
+    container_name: postgres
+    image: 'postgres:14-bullseye'
+    environment:
+      POSTGRES_USER: 'airflow'
+      POSTGRES_PASSWORD: 'airflow'
+      POSTGRES_DB: 'airflow'
+      PGDATA: /data/postgres
+    volumes:
+      - postgres:/data/postgres
+    ports:
+      - "5432:5432"
+    networks:
+      iceberg:
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 400MB
+
+  # Minio Storage Server
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_DOMAIN=storage
+      - MINIO_REGION_NAME=us-east-1
+      - MINIO_REGION=us-east-1
+    networks:
+      iceberg:
+    volumes:
+      - minio_data:/data
+    ports:
+      - 9001:9001
+      - 9000:9000
+    command: ["server", "/data", "--console-address", ":9001"]
+  # Dremio
+  dremio:
+    platform: linux/x86_64
+    image: dremio/dremio-oss:latest
+    ports:
+      - 9047:9047
+      - 31010:31010
+      - 32010:32010
+    container_name: dremio
+    environment:
+      - DREMIO_JAVA_SERVER_EXTRA_OPTS=-Dpaths.dist=file:///opt/dremio/data/dist
+    networks:
+      iceberg:
+
+networks:
+  iceberg:
+    driver: bridge
+
+volumes:
+    postgres:
+    airflow-data:
+    minio_data:
